@@ -23,8 +23,8 @@ type
         x,y, vel: float32
 
 # send message on the connection
-nettyhelper.reactor = client
-nettyhelper.client = c2s
+nettyrpc.reactor = client
+nettyrpc.client = c2s
 
 var 
     currentState = gsWaiting
