@@ -11,6 +11,44 @@ var
   recieveBuffer* = newStringStream()
   sendBuffer* = newStringStream()
 
+type
+  Collection[T] = concept c
+    for v in c:
+      v is T
+
+proc writeReferences*[T](ss: Stream, a: T) =
+  when(T is object):
+    for x in a.fields:
+      ss.writeReferences(x)
+  elif(T is Collection):
+    ss.write(a.len.uint32)
+    for x in a:
+      ss.writeReferences(x)
+  elif(T is ref):
+    ss.writeReferences(a[])
+  else:
+    ss.write(a)
+
+
+proc readReferences*[T](ss: Stream): T =
+  when(T is object):
+    result = T()
+    for val in result.fields:
+      val = readReferences[val.type](ss)
+  elif(T is ref):
+    result = T()
+    for val in result[].fields:
+      val = readReferences[val.type](ss)
+  elif(T is Collection):
+    var temp: typeOf(result[0])
+    let count = ss.readUint32
+    for x in 0..<count:
+      result.add(readReferences[temp.type](ss))
+  else:
+    var temp: T
+    ss.read(temp)
+    result = temp
+
 proc sendNetworked*(packet: StringStream) =
   if(not reactor.isNil and packet.getPosition() > 0):
     let pos = packet.getPosition
@@ -33,7 +71,7 @@ proc rpcTick*(client: Reactor) =
 
 macro networked*(toNetwork: untyped): untyped =
   ##[
-        Adds the RPC like behaviour, only works with stack allocated types, so no strings as of yet.
+      Adds the RPC like behaviour, only works with stack allocated types, so no strings as of yet.
     ]##
   var
     paramNameType: seq[(NimNode, NimNode)]
@@ -63,16 +101,13 @@ macro networked*(toNetwork: untyped): untyped =
   #For each variable read data
   for (name, pType) in paramNameType:
     #Logic for recieving
-    let 
+    let
       data = ident("data")
       sendBuffer = ident("sendBuffer")
     recBody.add quote do:
-      let `name` = block:
-        var t: `pType`
-        `data`.read(t)
-        t
+      let `name` = `data`.readReferences[: `pType`]()
     sendBody.add quote do:
-      `sendBuffer`.write(`name`)
+      `sendBuffer`.writeReferences(`name`)
 
   recBody.add(newCall($toNetwork[0], paramNames))
 
@@ -91,6 +126,6 @@ macro networked*(toNetwork: untyped): untyped =
       toNetwork,
       newProc(recName, recParams, recBody),
       quote do:
-        events[`compEventCount`] = `recName`
-    )
+    events[`compEventCount`] = `recName`
+  )
   inc compEventCount

@@ -13,7 +13,7 @@ var
 
 type
   GameState = enum
-    gsWaiting, gsReady, gsPlaying
+    gsWaiting, gsReady, gsPlaying, gsName
   Paddle = object
     y, color: int
     local: bool
@@ -27,20 +27,23 @@ nettyrpc.reactor = client
 nettyrpc.client = c2s
 
 var
-  currentState = gsWaiting
-  otherState = gsWaiting
+  currentState = gsName
+  otherState = gsName
+  yourName = ""
+  otherName = ""
   paddles: array[2, Paddle]
   ball = Ball()
   leftScore, rightScore = 0
 
 proc lobbyFull: bool = otherID != 0
 
-proc join(a: int, isLeft: bool = false){.networked.} =
+proc join(a: int, name: string, isLeft: bool = false){.networked.} =
   if(not isLocalMessage):
     #Attempt to handshake
     if(a != otherID): shouldHandshake = true
     otherID = a
     otherLeft = isLeft
+    otherName = name
 
 proc changeState(gs: GameState){.networked.} =
   if(not isLocalMessage):
@@ -63,7 +66,6 @@ proc ballScored(leftScr, rightScr: int){.networked.} =
 
 proc init =
   loadFont(0, "font.png")
-  join(id)
 
 proc generateBallDirection(b: var Ball) =
   ##Generates a random vector for the ball to travel
@@ -82,6 +84,15 @@ proc update(dt: float32) =
     changeState(gsReady)
   elif(currentState == gsReady and otherID != 0 and keypr(K_RETURN)):
     changeState(gsWaiting)
+  elif currentState == gsName:
+    for ch in {'a'..'z', ' '}:
+      if ch.ord.Keycode.keypr:
+        yourName.add ch
+    if keypr(K_BACKSPACE) and yourName.len > 0:
+      yourName = yourName[0..<yourName.high]
+    if keypr(K_RETURN) and yourName.len > 1:
+      join(id, yourname)
+      changeState(gsWaiting)
 
   if(currentState == gsReady and otherState in {gsReady, gsPlaying}):
     paddles[0] = Paddle(y: screenHeight.div(2) - 10, local: not otherLeft, color: 3)
@@ -140,26 +151,44 @@ proc update(dt: float32) =
 
   #If we joined first we're left cause yes
   if(shouldHandshake):
-    join(id, not otherLeft)
+    join(id, yourname, not otherLeft)
     shouldHandshake = false
 
 proc draw() =
   cls()
   setColor(5)
-
+  
   if(currentState == gsWaiting and lobbyFull()):
     printc("Press enter when ready", screenWidth.div(2), 0)
   if(currentState == gsReady):
     printc("Waiting for other player", screenWidth.div(2), 0)
+  if currentState == gsName:
+    printc(yourName, screenWidth.div(2), 0)
+    setColor(4)
+    printc("Enter your name", screenWidth.div(2), 30)
+    printc("Then press enter", screenWidth.div(2), 40)
+
 
   if(currentState == gsPlaying):
+    setcolor(paddles[0].color)
     print($leftScore, 10, 10, 3)
+    setColor(paddles[1].color)
     print($rightScore, screenWidth - 22, 10, 3)
-
-    print($(id == ball.owner), 0, screenHeight - 10)
+    let 
+      leftName = if otherLeft:
+          otherName
+        else:
+          yourName
+      rightName = if otherLeft:
+          yourName
+        else:
+          otherName
+      
     setColor(paddles[0].color)
     rectfill(1, paddles[0].y, 6, paddles[0].y + 20)
+    print(leftName, 0, screenHeight - 10)
     setColor(paddles[1].color)
+    printr(rightName, screenWidth, screenHeight - 10)
     rectfill(screenWidth - 6, paddles[1].y, screenHeight - 1, paddles[1].y + 20)
     setColor(10)
     circfill(ball.x, ball.y, 2)
