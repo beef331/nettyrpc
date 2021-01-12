@@ -1,78 +1,40 @@
-import macros, tables, strutils, streams, netty
+import macros, strutils, netty
+import nettyrpc/nettystream
 
-export streams, tables
+export nettystream
+
 var compEventCount{.compileTime.} = 0u16
-var events*: array[uint16, proc(data: StringStream)]
-
+var events*: array[uint16, proc(data: var NettyStream)]
 var
   isLocalMessage* = true
   reactor*: Reactor
   client*: Connection
-  recieveBuffer* = newStringStream()
-  sendBuffer* = newStringStream()
+  sendBuffer* = NettyStream()
 
-type
-  Collection[T] = concept c
-    for v in c:
-      v is T
-
-proc writeReferences*[T](ss: Stream, a: T) =
-  when(T is object):
-    for x in a.fields:
-      ss.writeReferences(x)
-  elif(T is Collection):
-    ss.write(a.len.uint32)
-    for x in a:
-      ss.writeReferences(x)
-  elif(T is ref):
-    ss.writeReferences(a[])
-  else:
-    ss.write(a)
-
-
-proc readReferences*[T](ss: Stream): T =
-  when(T is object):
-    result = T()
-    for val in result.fields:
-      val = readReferences[val.type](ss)
-  elif(T is ref):
-    result = T()
-    for val in result[].fields:
-      val = readReferences[val.type](ss)
-  elif(T is Collection):
-    var temp: typeOf(result[0])
-    let count = ss.readUint32
-    for x in 0..<count:
-      result.add(readReferences[temp.type](ss))
-  else:
-    var temp: T
-    ss.read(temp)
-    result = temp
-
-proc sendNetworked*(packet: StringStream) =
-  if(not reactor.isNil and packet.getPosition() > 0):
-    let pos = packet.getPosition
-    packet.setPosition(0)
-    let message = packet.readStr(pos)
-    reactor.send(client, message)
-    packet.setPosition(0)
+proc sendNetworked*(packet: var NettyStream) =
+  if(not reactor.isNil and packet.pos > 0):
+    reactor.send(client, packet.getBuffer[0..<packet.pos])
+    packet.clear()
 
 proc rpcTick*(client: Reactor) =
   sendNetworked(sendBuffer)
+  var recBuff = NettyStream()
   for msg in reactor.messages:
-    recieveBuffer.write(msg.data)
-    recieveBuffer.setPosition(0)
-    while(not recieveBuffer.atEnd()):
-      let id = recieveBuffer.readUint16
-      if(events[id] != nil):
-        isLocalMessage = false
-        events[id](recieveBuffer)
-        isLocalMessage = true
+    recBuff.addToBuffer(msg.data)
+  while(not recBuff.atEnd):
+    let id = block:
+      var res: uint16
+      recBuff.read res
+      res
+    if(events[id] != nil):
+      isLocalMessage = false
+      events[id](recBuff)
+      isLocalMessage = true
 
 macro networked*(toNetwork: untyped): untyped =
   ##[
       Adds the RPC like behaviour, only works with stack allocated types, so no strings as of yet.
-    ]##
+  ]##
   var
     paramNameType: seq[(NimNode, NimNode)]
     paramNames: seq[NimNode]
@@ -87,8 +49,8 @@ macro networked*(toNetwork: untyped): untyped =
   let
     recName = ident("recieve" & capitalizeAscii($toNetwork[0]))
     sendName = ident("send" & capitalizeAscii($toNetwork[0]))
-    recParams = [newEmptyNode(), newIdentDefs(ident("data"), ident(
-            "StringStream"))]
+    recParams = [newEmptyNode(), newIdentDefs(ident("data"), newNimNode(nnkVarTy).add ident(
+            "NettyStream"))]
   var
     recBody = newStmtList()
     sendBody = newStmtList().add(
@@ -105,9 +67,12 @@ macro networked*(toNetwork: untyped): untyped =
       data = ident("data")
       sendBuffer = ident("sendBuffer")
     recBody.add quote do:
-      let `name` = `data`.readReferences[: `pType`]()
+      let `name` = block:
+        var t: `pType`
+        `data`.read(t)
+        t
     sendBody.add quote do:
-      `sendBuffer`.writeReferences(`name`)
+      `sendBuffer`.write(`name`)
 
   recBody.add(newCall($toNetwork[0], paramNames))
 

@@ -2,12 +2,12 @@ import netty, nettyrpc, nico, random, times
 import nico/vec
 
 randomize(now().nanosecond)
-let id = rand(1..10000000)
+let id = rand(1u32..10000000u32)
 
 var
   client = newReactor()
   c2s = client.connect("127.0.0.1", 1999)
-  otherID = 0
+  otherID = 0u32
   shouldHandshake = false
   otherLeft = false
 
@@ -37,7 +37,7 @@ var
 
 proc lobbyFull: bool = otherID != 0
 
-proc join(a: int, name: string, isLeft: bool = false){.networked.} =
+proc join(a: uint32, name: string, isLeft: bool = false){.networked.} =
   if(not isLocalMessage):
     #Attempt to handshake
     if(a != otherID): shouldHandshake = true
@@ -167,7 +167,7 @@ proc draw() =
     setColor(4)
     printc("Enter your name", screenWidth.div(2), 30)
     printc("Then press enter", screenWidth.div(2), 40)
-
+  printc($currentState, screenWidth.div(2), screenHeight - 30)
 
   if(currentState == gsPlaying):
     setcolor(paddles[0].color)
