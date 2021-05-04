@@ -4,20 +4,23 @@ import nettyrpc/nettystream
 
 export nettystream
 
-var compEventCount{.compileTime.} = 0u16
-var events*: array[uint16, proc(data: var NettyStream)]
-var
+var 
+  compEventCount{.compileTime.} = 0u16
+  events*: array[uint16, proc(data: var NettyStream)] ## Ugly method of holding procedures
   reactor*: Reactor
   client*: Connection
   sendBuffer* = NettyStream()
 
-proc sendNetworked*(packet: var NettyStream) =
-  if(not reactor.isNil and packet.pos > 0):
-    reactor.send(client, packet.getBuffer[0..<packet.pos])
-    packet.clear()
+proc send*(message: var NettyStream) =
+  ## Sends the RPC message to the server to relay
+  if(not reactor.isNil and message.pos > 0):
+    reactor.send(client, message.getBuffer[0..<message.pos])
+    message.clear()
 
 proc rpcTick*(client: Reactor) =
-  sendNetworked(sendBuffer)
+  ## Parses all packets recieved since last tick.
+  ## Invokes procedures internally.
+  send(sendBuffer)
   var recBuff = NettyStream()
   for msg in reactor.messages:
     recBuff.addToBuffer(msg.data)
@@ -34,7 +37,8 @@ macro networked*(toNetwork: untyped): untyped =
   ## Adds the RPC like behaviour,
   ## for proc(a: int),
   ## it emits a proc(a: int, isLocal: static bool = false).
-  ## Use `when isLocal` to diferentiate "sender" and "reciever" logic
+  ## Use `if isLocal` to diferentiate "sender" and "reciever" logic.
+  ## Will always relay to the server the passed in data.
   var
     paramNameType: seq[(NimNode, NimNode)]
     paramNames: seq[NimNode]
@@ -54,10 +58,10 @@ macro networked*(toNetwork: untyped): untyped =
   var
     recBody = newStmtList()
     sendBody = newStmtList().add(
-            newCall(
-                ident("write"),
-                ident("sendBuffer"),
-                newLit(compEventCount)
+      newCall(
+          ident("write"),
+          ident("sendBuffer"),
+          newLit(compEventCount)
       )
     )
   let data = ident("data")
@@ -84,8 +88,8 @@ macro networked*(toNetwork: untyped): untyped =
 
   #Generated AST for entire proc
   result = newStmtList().add(
-      toNetwork,
-      quote do:
-    events[`compEventCount`] = proc(`data`: var NettyStream) = `recBody`
+    toNetwork,
+    quote do:
+      events[`compEventCount`] = proc(`data`: var NettyStream) = `recBody`
   )
   inc compEventCount
