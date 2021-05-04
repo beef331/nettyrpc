@@ -51,7 +51,6 @@ macro networked*(toNetwork: untyped): untyped =
         paramNameType.add (ident, typ)
         paramNames.add ident
 
-  let sendName = ident("send" & capitalizeAscii($toNetwork[0]))
   var
     recBody = newStmtList()
     sendBody = newStmtList().add(
@@ -90,4 +89,3 @@ macro networked*(toNetwork: untyped): untyped =
     events[`compEventCount`] = proc(`data`: var NettyStream) = `recBody`
   )
   inc compEventCount
-  echo result.repr
