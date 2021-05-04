@@ -99,4 +99,4 @@ proc atEnd*(ns: NettyStream): bool = ns.pos >= ns.buffer.len
 proc size*(ns: NettyStream): int = ns.buffer.len
 proc clear*(ns: var NettyStream) =
   ns.pos = 0
-  ns.buffer = ""
+  ns.buffer.setLen(0)

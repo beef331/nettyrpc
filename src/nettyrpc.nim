@@ -4,6 +4,8 @@ import nettyrpc/nettystream
 
 export nettystream
 
+type NettyRpcException = object of CatchableError
+
 var 
   compEventCount{.compileTime.} = 0u16
   events*: array[uint16, proc(data: var NettyStream)] ## Ugly method of holding procedures
@@ -13,6 +15,8 @@ var
 
 proc send*(message: var NettyStream) =
   ## Sends the RPC message to the server to relay
+  if reactor.isNil:
+    raise newException(NettyRpcException, "Reactor is not set")
   if(not reactor.isNil and message.pos > 0):
     reactor.send(client, message.getBuffer[0..<message.pos])
     message.clear()
@@ -20,6 +24,7 @@ proc send*(message: var NettyStream) =
 proc rpcTick*(client: Reactor) =
   ## Parses all packets recieved since last tick.
   ## Invokes procedures internally.
+  client.tick()
   send(sendBuffer)
   var recBuff = NettyStream()
   for msg in reactor.messages:
