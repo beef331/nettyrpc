@@ -2,7 +2,10 @@ type NettyStream* = object
   buffer: string
   pos*: int
 
-{.experimental: "codeReordering".}
+proc write*[T: enum or bool](ns: var NettyStream, i: T)
+
+proc read*[T: enum or bool](ns: var NettyStream, e: var T)
+proc read*[T: SomeInteger](ns: var NettyStream, v: var T)
 
 proc write*[T: enum or bool](ns: var NettyStream, i: T) =
   ns.write i.ord

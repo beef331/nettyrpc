@@ -37,22 +37,22 @@ var
 
 proc lobbyFull: bool = otherID != 0
 
-proc join(a: uint32, name: string, isLeft: bool = false){.networked.} =
-  if(not isLocalMessage):
-    #Attempt to handshake
+proc join(a: uint32, name: string, isLeft = false){.networked.} =
+  if not isLocal:
+    # Attempt to handshake
     if(a != otherID): shouldHandshake = true
     otherID = a
     otherLeft = isLeft
     otherName = name
 
 proc changeState(gs: GameState){.networked.} =
-  if(not isLocalMessage):
-    otherState = gs
-  else:
+  if isLocal:
     currentState = gs
+  else:
+    otherState = gs
 
 proc updatePaddle(p: Paddle){.networked.} =
-  if(not isLocalMessage):
+  if(not isLocal):
     for x in paddles.mitems:
       if(not x.local):
         x.y = p.y
@@ -68,7 +68,7 @@ proc init =
   loadFont(0, "font.png")
 
 proc generateBallDirection(b: var Ball) =
-  ##Generates a random vector for the ball to travel
+  ## Generates a random vector for the ball to travel
   let
     x = rand(0..1) * 2 - 1
     vect = vec2f(x, rand(-0.8..0.8)).normalized()

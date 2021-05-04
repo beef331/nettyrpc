@@ -1,4 +1,5 @@
-import macros, strutils, netty
+import std/[macros, strutils, macrocache]
+import netty
 import nettyrpc/nettystream
 
 export nettystream
@@ -6,7 +7,6 @@ export nettystream
 var compEventCount{.compileTime.} = 0u16
 var events*: array[uint16, proc(data: var NettyStream)]
 var
-  isLocalMessage* = true
   reactor*: Reactor
   client*: Connection
   sendBuffer* = NettyStream()
@@ -27,30 +27,31 @@ proc rpcTick*(client: Reactor) =
       recBuff.read res
       res
     if(events[id] != nil):
-      isLocalMessage = false
       events[id](recBuff)
-      isLocalMessage = true
+
 
 macro networked*(toNetwork: untyped): untyped =
-  ##[
-      Adds the RPC like behaviour, only works with stack allocated types, so no strings as of yet.
-  ]##
+  ## Adds the RPC like behaviour,
+  ## for proc(a: int),
+  ## it emits a proc(a: int, isLocal: static bool = false).
+  ## Use `when isLocal` to diferentiate "sender" and "reciever" logic
   var
     paramNameType: seq[(NimNode, NimNode)]
     paramNames: seq[NimNode]
 
   #Get parameters name and type
   for x in toNetwork[3]:
-    if(x.kind == nnkIdentDefs):
+    if x.kind == nnkIdentDefs:
       for ident in x[0..^3]:
-        paramNameType.add (ident, x[^2])
+        let typ = 
+          if x[^2].kind != nnkEmpty:
+            x[^2]
+          else:
+            newCall(ident"typeOf", x[^1])
+        paramNameType.add (ident, typ)
         paramNames.add ident
 
-  let
-    recName = ident("recieve" & capitalizeAscii($toNetwork[0]))
-    sendName = ident("send" & capitalizeAscii($toNetwork[0]))
-    recParams = [newEmptyNode(), newIdentDefs(ident("data"), newNimNode(nnkVarTy).add ident(
-            "NettyStream"))]
+  let sendName = ident("send" & capitalizeAscii($toNetwork[0]))
   var
     recBody = newStmtList()
     sendBody = newStmtList().add(
@@ -60,26 +61,23 @@ macro networked*(toNetwork: untyped): untyped =
                 newLit(compEventCount)
       )
     )
-  #For each variable read data
+  let data = ident("data")
+  # For each variable read data
   for (name, pType) in paramNameType:
-    #Logic for recieving
-    let
-      data = ident("data")
-      sendBuffer = ident("sendBuffer")
+    # Logic for recieving
+    let sendBuffer = ident("sendBuffer")
     recBody.add quote do:
       let `name` = block:
-        var t: `pType`
-        `data`.read(t)
-        t
+        var temp: `pType`
+        `data`.read(temp)
+        temp
     sendBody.add quote do:
-      `sendBuffer`.write(`name`)
-
+      write(`sendBuffer`, `name`)
+  paramNames.add nnkExprEqExpr.newTree(ident"isLocal", ident"false") # Adding `isLocal = false` for the call
   recBody.add(newCall($toNetwork[0], paramNames))
 
-  #Append If logic
-  var ifBody = newStmtList(newCall(sendName, paramNames))
-
-  toNetwork[toNetwork.len-1].add(newIfStmt((ident("isLocalMessage"), ifBody)))
+  toNetwork[3].add newIdentDefs(ident"isLocal", ident"bool", ident"true")
+  toNetwork[^1].add newIfStmt((ident("isLocal"), sendBody))
 
   var sendParams: seq[NimNode]
   for x in toNetwork[3]:
@@ -87,10 +85,9 @@ macro networked*(toNetwork: untyped): untyped =
 
   #Generated AST for entire proc
   result = newStmtList().add(
-      newProc(sendName, sendParams, sendBody),
       toNetwork,
-      newProc(recName, recParams, recBody),
       quote do:
-    events[`compEventCount`] = `recName`
+    events[`compEventCount`] = proc(`data`: var NettyStream) = `recBody`
   )
   inc compEventCount
+  echo result.repr
