@@ -14,15 +14,63 @@ var
   client*: Connection
   sendBuffer* = NettyStream()
 
-proc send*(message: var NettyStream) =
-  ## Sends the RPC message to the server to relay
+proc basicSend(conn: Connection, message: string) =
+  ## Sends the RPC message to the server to process directly.
+  ## Does not use netty stream.
+  if reactor.isNil:
+    raise newException(NettyRpcException, "Reactor is not set")
+  if(not reactor.isNil):
+    reactor.send(conn, message)
+
+proc send*(conn: Connection, message: var NettyStream) =
+  ## Sends the RPC message to the server to process directly.
   if reactor.isNil:
     raise newException(NettyRpcException, "Reactor is not set")
   if(not reactor.isNil and message.pos > 0):
-    reactor.send(client, message.getBuffer[0..<message.pos])
+    reactor.send(conn, message.getBuffer[0..<message.pos])
     message.clear()
 
-proc rpcTick*(client: Reactor) =
+proc sendall*(message: var NettyStream) =
+  ## Sends the RPC message to the server to process
+  if reactor.isNil:
+    raise newException(NettyRpcException, "Reactor is not set")
+  if(not reactor.isNil and message.pos > 0):
+    var d = message.getBuffer[0..<message.pos]
+    for conn in reactor.connections:
+      reactor.send(conn, d)
+    message.clear()
+
+proc rpc*[T](conn: Connection, procName: string, vargs: varargs[T]) =
+  ## Send a rpc to a specific connection.
+  sendBuffer.write(hash(procName))
+  for v in vargs:
+    sendBuffer.write(v)
+  send(conn, sendBuffer)
+
+proc rpc*[T](procName: string, vargs: varargs[T]) =
+  ## Send a rpc to all connected clients.
+  sendBuffer.write(hash(procName))
+  for v in vargs:
+    sendBuffer.write(v)
+  sendall(sendBuffer)
+
+proc rpc*(conn: Connection, procName: string) =
+  ## Send a rpc to a specific connection.
+  sendBuffer.write(hash(procName))
+  send(conn, sendBuffer)
+
+proc rpc*(procName: string) =
+  ## Send a rpc to all connected clients.
+  sendBuffer.write(hash(procName))
+  sendall(sendBuffer)
+
+proc relay(ns: string, conn: Connection) =
+  ## Relay the message data to the specified connection.
+  ## Used when there is no server-side procedure.
+  for connec in reactor.connections:
+    if connec != conn:
+      basicSend(connec, ns)
+
   ## Parses all packets recieved since last tick.
   ## Invokes procedures internally.
   client.tick()
