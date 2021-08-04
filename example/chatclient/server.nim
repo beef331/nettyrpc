@@ -2,6 +2,10 @@ import netty, nettyrpc, os
 
 # listen for a connection on localhost port 1999
 var server = newReactor("127.0.0.1", 1999)
+
+# Set nettyrpc reactor to server.
+nettyrpc.reactor = server
+
 # main loop
 while true:
   server.rpcTick(server=true)  
