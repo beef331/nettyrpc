@@ -71,21 +71,47 @@ proc relay(ns: string, conn: Connection) =
     if connec != conn:
       basicSend(connec, ns)
 
+proc rpcTick*(sock: Reactor, server: bool = false) =
   ## Parses all packets recieved since last tick.
-  ## Invokes procedures internally.
-  client.tick()
-  send(sendBuffer)
-  var recBuff = NettyStream()
-  for msg in reactor.messages:
-    recBuff.addToBuffer(msg.data)
-  while(not recBuff.atEnd):
-    let id = block:
-      var res: uint16
-      recBuff.read res
-      res
-    if(events[id] != nil):
-      events[id](recBuff)
+  ## Invokes procedures internally.  If no procedure is
+  ## found it will relay the command.
+  sock.tick()
+  if not server:
+    client.send(sendBuffer)
 
+  var relayedBuff = NettyStream()
+  var managedBuff = NettyStream()
+  var conns = newSeq[Connection]()
+  for msg in reactor.messages:
+    relayedBuff.addToBuffer(msg.data)
+    managedBuff.addToBuffer(msg.data)
+    conns.add(msg.conn)
+
+  var i = 0
+  while(not relayedBuff.atEnd):
+    # Check for a managed proc first.
+    let managedId = block: 
+      var res: int
+      managedBuff.read res
+      res
+    if managedEvents.hasKey(managedId):
+      managedEvents[managedId](managedBuff, conns[i])
+      break  # buffer will be consumed so we don't need to keep looping.
+
+    # If there was no managed proc then check for relayed procs
+    # in case of client, and run the relay if the server is 
+    # the one running rpcTick.
+    let relayedId = block:
+      var res: uint16
+      relayedBuff.read res
+      res
+    if(relayedEvents[relayedId] != nil):
+      relayedEvents[relayedId](relayedBuff, conns[i])
+      break  # buffer will be consumed so we don't need to keep looping.
+    elif(server == true):
+      relay(relayedBuff.getBuffer, conns[i])
+      break  # buffer will be consumed so we don't need to keep looping.
+    i += 1
 
 macro networked*(toNetwork: untyped): untyped =
   ## Adds the RPC like behaviour,
