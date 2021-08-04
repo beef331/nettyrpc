@@ -98,18 +98,18 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
       managedEvents[managedId](managedBuff, conns[i])
       break  # buffer will be consumed so we don't need to keep looping.
 
-    # If there was no managed proc then check for relayed procs
-    # in case of client, and run the relay if the server is 
-    # the one running rpcTick.
+    if server:  # No need to check server for relayed procs since they don't exist
+      relay(relayedBuff.getBuffer, conns[i])
+      break  # buffer will be consumed so we don't need to keep looping.
+
+    # If there was no managed proc and we are client then check for relayed 
+    # procs and run them.
     let relayedId = block:
       var res: uint16
       relayedBuff.read res
       res
     if(relayedEvents[relayedId] != nil):
       relayedEvents[relayedId](relayedBuff, conns[i])
-      break  # buffer will be consumed so we don't need to keep looping.
-    elif(server == true):
-      relay(relayedBuff.getBuffer, conns[i])
       break  # buffer will be consumed so we don't need to keep looping.
     i += 1
 
