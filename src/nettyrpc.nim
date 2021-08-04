@@ -1,4 +1,4 @@
-import std/[macros, strutils, macrocache]
+import std/[macros, strutils, macrocache, tables, hashes, sequtils]
 import netty
 import nettyrpc/nettystream
 
@@ -6,9 +6,10 @@ export nettystream
 
 type NettyRpcException = object of CatchableError
 
-var 
+var
   compEventCount{.compileTime.} = 0u16
-  events*: array[uint16, proc(data: var NettyStream)] ## Ugly method of holding procedures
+  relayedEvents*: array[uint16, proc(data: var NettyStream, conn: Connection)] ## Ugly method of holding procedures
+  managedEvents*: Table[Hash, proc(data: var NettyStream, conn: Connection)] ## Uglier method of holding procedures
   reactor*: Reactor
   client*: Connection
   sendBuffer* = NettyStream()
