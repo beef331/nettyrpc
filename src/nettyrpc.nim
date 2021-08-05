@@ -113,6 +113,91 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
       break  # buffer will be consumed so we don't need to keep looping.
     i += 1
 
+proc mapProcParams(toNetwork: NimNode): tuple[n: seq[NimNode], t: seq[(NimNode, NimNode)]] =
+  ## Create a tuple containing nim node names and types that we need to 
+  ## modify the procedure.
+  var
+    paramNameType: seq[(NimNode, NimNode)]
+    paramNames: seq[NimNode]
+
+  #Get parameters name and type
+  for x in toNetwork[3]:
+    if x.kind == nnkIdentDefs:
+      for ident in x[0..^3]:
+        let typ = 
+          if x[^2].kind != nnkEmpty:
+            x[^2]
+          else:
+            newCall(ident"typeOf", x[^1])
+        paramNameType.add (ident, typ)
+        paramNames.add ident
+  echo paramNameType
+  (paramNames, paramNameType)
+
+proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType: var seq[(NimNode, NimNode)], isRelayed: bool = false): tuple[recBody: NimNode, sendBody: NimNode, data: NimNode, conn: NimNode] =
+  ## Patches nim nodes and adds netty Connection object.  If the procedure is relayed
+  ## it will add the isLocal bool.
+  var 
+    recBody = newStmtList()
+    sendBody = newStmtList().add(
+      newCall(
+          ident("write"),
+          ident("sendBuffer"),
+          newLit(compEventCount)
+      )
+    )
+  let data = ident("data")
+  let conn = ident("conn")
+  # For each variable read data
+  for (name, pType) in paramNameType:
+    # Logic for recieving
+    let sendBuffer = ident("sendBuffer")
+    recBody.add quote do:
+      let `name` = block:
+        var temp: `pType`
+        `data`.read(temp)
+        temp
+    if isRelayed:
+      sendBody.add quote do:
+        write(`sendBuffer`, `name`)
+
+  paramNames.add ident("conn") # param for conn: Conection = Connection ()
+  if isRelayed:
+    paramNames.add nnkExprEqExpr.newTree(ident"isLocal", ident"false") # Adding `isLocal = false` for the call
+  recBody.add(newCall($toNetwork[0], paramNames))
+  
+  var identDef = newIdentDefs(
+      ident("conn"), ident("Connection"), newCall(ident("Connection"))
+    )
+  toNetwork[3].add(identDef)
+  if isRelayed:
+    toNetwork[3].add newIdentDefs(ident"isLocal", ident"bool", ident"true")
+    toNetwork[^1].add newIfStmt((ident("isLocal"), sendBody))
+  
+  (recBody, sendBody, data, conn)
+
+proc compileFinalStmts(toNetwork: NimNode, data: NimNode, conn: NimNode, recBody: NimNode, isRelayed: bool = false): NimNode =
+  ## Create the final statement list with the finalized procedure and the proc
+  ## registry.
+  let procName = hash($name(toNetwork))
+    
+  let finalStmts = block:
+    if isRelayed:
+      let stm = quote do:
+        relayedEvents[`compEventCount`] = proc(`data`: var NettyStream, `conn`: Connection) = `recBody`
+      inc compEventCount
+      stm
+    else:
+      quote do:
+        managedEvents[`procName`] = proc(`data`: var NettyStream, `conn`: Connection) = `recBody`
+
+  #Generated AST for entire proc
+  result = newStmtList().add(
+    toNetwork,
+    quote do:
+      `finalStmts`
+  )
+
 macro networked*(toNetwork: untyped): untyped =
   ## Adds the RPC like behaviour,
   ## for proc(a: int),
@@ -122,56 +207,9 @@ macro networked*(toNetwork: untyped): untyped =
   ## connection only via `rpc(conn, "some_func", a)`
   ## or `conn.rpc("some_func", a)`
   
-  var
-    paramNameType: seq[(NimNode, NimNode)]
-    paramNames: seq[NimNode]
-
-  #Get parameters name and type
-  for x in toNetwork[3]:
-    if x.kind == nnkIdentDefs:
-      for ident in x[0..^3]:
-        let typ = 
-          if x[^2].kind != nnkEmpty:
-            x[^2]
-          else:
-            newCall(ident"typeOf", x[^1])
-        paramNameType.add (ident, typ)
-        paramNames.add ident
-
-  var identDef = newIdentDefs(
-      ident("conn"), ident("Connection"), newCall(ident("Connection"))
-    )
-  toNetwork[3].add(identDef)
-  paramNames.add(ident("conn"))
-
-  var
-    recBody = newStmtList()
-
-  let data = ident("data")
-  let conn = ident("conn")
-  # For each variable read data
-  for (name, pType) in paramNameType:
-    # Logic for recieving
-    let sendBuffer = ident("sendBuffer")
-    recBody.add quote do:
-      let `name` = block:
-        var temp: `pType`
-        `data`.read(temp)
-        temp
-
-  recBody.add(newCall($toNetwork[0], paramNames))
-
-  var sendParams: seq[NimNode]
-  for x in toNetwork[3]:
-    sendParams.add(x)
-
-  let procName = hash($name(toNetwork))
-  #Generated AST for entire proc
-  result = newStmtList().add(
-    toNetwork,
-    quote do:
-      managedEvents[`procName`] = proc(`data`: var NettyStream, `conn`: Connection) = `recBody`
-  )
+  var (paramNames, paramNameType) = mapProcParams(toNetwork)
+  var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType)
+  result = compileFinalStmts(toNetwork, data, conn, recBody)
 
 macro relayed*(toNetwork: untyped): untyped =
   ## Adds the RPC-relay like behaviour,
@@ -181,66 +219,7 @@ macro relayed*(toNetwork: untyped): untyped =
   ## Will always relay to the server the passed in data.
   ## A netty Connection is provided to the proc so senders
   ## can still be identified in relayed procedures.
-  var
-    paramNameType: seq[(NimNode, NimNode)]
-    paramNames: seq[NimNode]
-
-  #Get parameters name and type
-  for x in toNetwork[3]:
-    if x.kind == nnkIdentDefs:
-      for ident in x[0..^3]:
-        let typ = 
-          if x[^2].kind != nnkEmpty:
-            x[^2]
-          else:
-            newCall(ident"typeOf", x[^1])
-        paramNameType.add (ident, typ)
-        paramNames.add ident
   
-  let procName = $name(toNetwork)
-  var
-    recBody = newStmtList()
-    sendBody = newStmtList().add(
-      newCall(
-          ident("write"),
-          ident("sendBuffer"),
-          newLit(compEventCount)
-      )
-    )
-
-  let data = ident("data")
-  let conn = ident("conn")
-  # For each variable read data
-  for (name, pType) in paramNameType:
-    # Logic for recieving
-    let sendBuffer = ident("sendBuffer")
-    recBody.add quote do:
-      let `name` = block:
-        var temp: `pType`
-        `data`.read(temp)
-        temp
-    sendBody.add quote do:
-      write(`sendBuffer`, `name`)
-  paramNames.add ident("conn") # param for conn: Conection = Connection ()
-  paramNames.add nnkExprEqExpr.newTree(ident"isLocal", ident"false") # Adding `isLocal = false` for the call
-  
-  recBody.add(newCall($toNetwork[0], paramNames))
-
-  var identDef = newIdentDefs(
-    ident("conn"), ident("Connection"), newCall(ident("Connection"))
-  )
-  toNetwork[3].add identDef
-  toNetwork[3].add newIdentDefs(ident"isLocal", ident"bool", ident"true")
-  toNetwork[^1].add newIfStmt((ident("isLocal"), sendBody))
-
-  var sendParams: seq[NimNode]
-  for x in toNetwork[3]:
-    sendParams.add(x)
-
-  #Generated AST for entire proc
-  result = newStmtList().add(
-    toNetwork,
-    quote do:
-      relayedEvents[`compEventCount`] = proc(`data`: var NettyStream, `conn`: Connection) = `recBody`
-  )
-  inc compEventCount
+  var (paramNames, paramNameType) = mapProcParams(toNetwork)
+  var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType, true)
+  result = compileFinalStmts(toNetwork, data, conn, recBody, true)
