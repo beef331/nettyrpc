@@ -1,4 +1,4 @@
-import std/[macros, strutils, macrocache, tables, hashes, sequtils]
+import std/[macros, macrocache, tables, hashes]
 import netty
 import nettyrpc/nettystream
 
