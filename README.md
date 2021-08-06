@@ -7,7 +7,7 @@ https://github.com/treeform/netty
 
 nettyrpc can be set up to run authoritative and non-authoritative servers by the use of `{.networked.}` or `{.relayed.}` procedures. 
 
-A relayed RPC is sent directly to the server, no server-side processing is done and the RPC is sent to every connected client on the server where it is processed client-side.  Relayed RPCs have a `isLocal` bool that can be used to control what the caller runs in a relayed procedure vs what the receivers run.  Unlike networked procedures, relayed procedures can be called like any other procedure.
+A `{.relayed.}` RPC is sent directly to the server, no server-side processing is done and the RPC is sent to every connected client on the server where it is processed client-side.  Relayed RPCs have a `isLocal` bool that can be used to control what the caller runs in a relayed procedure vs what the receivers run.  Unlike `{.networked.}` procedures, relayed procedures can be called like any other procedure.
 
 Networked RPCs are sent to the server where the server processes the data, and depending on how you write your server code, the server can forward the data to an individual client, all clients, or process the data server-side without any forwarding.  Networked RPCs must be called through the `rpc` procedures provided by nettyrpc, ie. `rpc("someRemoteProc", arg1, arg2, arg3)` or `rpc(conn, "someRemoteProc", arg1, arg2, arg3)`.
 
