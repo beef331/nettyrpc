@@ -40,17 +40,17 @@ proc sendall*(message: var NettyStream) =
       reactor.send(conn, d)
     message.clear()
 
-template rpc*(conn: Connection, procName: string, vargs: varargs) =
+proc rpc*(conn: Connection, procName: string, vargs: tuple) =
   ## Send a rpc to a specific connection.
   sendBuffer.write(hash(procName))
-  for v in vargs:
+  for k, v in vargs.fieldPairs:
     sendBuffer.write(v)
   send(conn, sendBuffer)
 
-template rpc*(procName: string, vargs: varargs) =
+proc rpc*(procName: string, vargs: tuple) =
   ## Send a rpc to all connected clients.
   sendBuffer.write(hash(procName))
-  for v in vargs:
+  for k, v in vargs.fieldPairs:
     sendBuffer.write(v)
   sendall(sendBuffer)
 
