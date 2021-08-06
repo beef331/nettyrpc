@@ -66,7 +66,7 @@ while true:
   client.rpcTick()  
 ```
 
-Here is the server code we need to handle the call to `join`, and then calling the `welcome` procedure on each connected client.
+Here is the server code we need to handle the call to `join`, and then calling the `welcome` procedure on each connected client.  It also sends the same welcome message to the caller of the RPC (to demonstrate direct calling of a RP)
 
 __server.nim__
 
