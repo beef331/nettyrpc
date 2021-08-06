@@ -1,7 +1,7 @@
 # nettyrpc
  Implements an RPC-like system for Nim
 
-nettyrpc is a RPC module built on top of the netty library, and sends data over a modified UDP connection that's capped at 250kb of in-flight data.  Netty performs packet ordering and packet resending like a TCP connection, but it's all done over UDP.  Check the netty library for more information about how netty utilizes UDP, and it's limitations.
+nettyrpc is a RPC module for game development.  nettyrpc is built on top of the netty library, and sends data over a modified UDP connection that's capped at 250k of in-flight data.  Netty performs packet ordering and packet resending like a TCP connection, but it's all done over UDP.  Check the netty library for more information about how netty utilizes UDP, and it's limitations.
 
 https://github.com/treeform/netty
 
@@ -11,11 +11,11 @@ A `{.relayed.}` RPC is sent directly to the server, no server-side processing is
 
 `{.networked.}` RPCs are sent to the server where the server processes the data, and depending on how you write your server code, the server can forward the data to an individual client, all clients, or process the data server-side without any forwarding.  Networked RPCs must be called through the `rpc` procedures provided by nettyrpc, ie. `rpc("someRemoteProc", (arg1, arg2, arg3))` or `rpc(conn, "someRemoteProc", (arg1, arg2, arg3))`.  It's important that your args are wrapped in a `tuple` when using the `rpc` procedures.
 
-Both relayed and networked RPCs contain a netty `Connection` object that represents the RPC caller's connection.  This is accessed through the `conn` variable that is automatically added to any `{.relayed.}` or `{.networked.}` procedures.
+Both relayed and networked RPCs contain [a netty `Connection` object](https://github.com/treeform/netty/blob/master/src/netty.nim#L52) that represents the RPC caller's connection.  This is accessed through the `conn` variable that is automatically added to any `{.relayed.}` or `{.networked.}` procedures.
 
 ## Uses
 
-Mostly games, but any networked application that does not require a ton of throughput.  UDP is not designed for throughput, however this library could be used to negotiate a TCP connection for larger data transfers.
+Mostly game developement, but any networked application that does not require a ton of throughput.  UDP is not designed for throughput, however this library could be used to negotiate a TCP connection for larger data transfers.
 
 ## Examples
 
@@ -38,7 +38,6 @@ A `{.networked.}` procedure requires us to implement server-side RPCs so the ser
 ### A Tiny Example
 
 Here is a client with a `{.networked.}` procedure.  It attempts to run the `join` procedure located on the server, and the server then processes the message and calls the `welcome` procedure on all connected clients.
-
 
 __client.nim__
 
