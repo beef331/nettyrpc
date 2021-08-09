@@ -131,7 +131,6 @@ proc mapProcParams(toNetwork: NimNode): tuple[n: seq[NimNode], t: seq[(NimNode, 
             newCall(ident"typeOf", x[^1])
         paramNameType.add (ident, typ)
         paramNames.add ident
-  echo paramNameType
   (paramNames, paramNameType)
 
 proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType: var seq[(NimNode, NimNode)], isRelayed: bool = false): tuple[recBody: NimNode, sendBody: NimNode, data: NimNode, conn: NimNode] =
