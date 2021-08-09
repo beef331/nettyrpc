@@ -78,7 +78,6 @@ proc generateBallDirection(b: var Ball) =
 
 proc update(dt: float32) =
   client.rpcTick()
-  client.tick()
 
   if(currentState == gsWaiting and otherID != 0 and keypr(K_RETURN)):
     changeState(gsReady)
