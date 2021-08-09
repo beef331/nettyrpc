@@ -16,7 +16,7 @@ proc getParams: (string, string, int) =
     of "name", "n":
       result[0] = val
 
-proc send(name, message: string){.networked.} =
+proc send(name, message: string) {.relayed.} =
   if not isLocal:
     eraseLine()
     echo fmt"{getClockStr()} {name} says: {message}"

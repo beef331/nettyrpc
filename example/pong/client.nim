@@ -37,7 +37,7 @@ var
 
 proc lobbyFull: bool = otherID != 0
 
-proc join(a: uint32, name: string, isLeft = false){.networked.} =
+proc join(a: uint32, name: string, isLeft = false) {.relayed.} =
   if not isLocal:
     # Attempt to handshake
     if(a != otherID): shouldHandshake = true
@@ -45,22 +45,22 @@ proc join(a: uint32, name: string, isLeft = false){.networked.} =
     otherLeft = isLeft
     otherName = name
 
-proc changeState(gs: GameState){.networked.} =
+proc changeState(gs: GameState) {.relayed.} =
   if isLocal:
     currentState = gs
   else:
     otherState = gs
 
-proc updatePaddle(p: Paddle){.networked.} =
+proc updatePaddle(p: Paddle) {.relayed.} =
   if(not isLocal):
     for x in paddles.mitems:
       if(not x.local):
         x.y = p.y
 
-proc updateBall(inBall: Ball){.networked.} =
+proc updateBall(inBall: Ball) {.relayed.} =
   ball = inBall
 
-proc ballScored(leftScr, rightScr: int){.networked.} =
+proc ballScored(leftScr, rightScr: int) {.relayed.} =
   leftScore = leftScr
   rightScore = rightScr
 
