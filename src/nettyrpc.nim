@@ -213,7 +213,8 @@ macro networked*(toNetwork: untyped): untyped =
   ## The Connection is the sender of the RPC.
   ## You can use the connection to call an RPC on that
   ## connection only via `rpc(conn, "some_func", a)`
-  ## or `conn.rpc("some_func", a)`
+  ## or `conn.rpc("some_func", a)`.  The Connection object
+  ## on the client-side will always represent the connection to the server.
   
   var (paramNames, paramNameType) = mapProcParams(toNetwork)
   var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType)
@@ -225,8 +226,7 @@ macro relayed*(toNetwork: untyped): untyped =
   ## it emits a proc(a: int, conn: Connection = Connection(), isLocal: static bool = false).
   ## Use `if isLocal` to diferentiate "sender" and "reciever" logic.
   ## Will always relay to the server the passed in data.
-  ## A netty Connection is provided to the proc so senders
-  ## can still be identified in relayed procedures.
+  ## Netty Connection object will always represent connection to server.
   
   var (paramNames, paramNameType) = mapProcParams(toNetwork)
   var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType, true)
