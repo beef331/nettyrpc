@@ -4,7 +4,9 @@ import nettyrpc/nettystream
 
 export nettystream
 
-type NettyRpcException = object of CatchableError
+type 
+  NettyRpcException = object of CatchableError
+  Strings* = string or static string
 
 var
   compEventCount{.compileTime.} = 0u16
@@ -40,28 +42,36 @@ proc sendall*(message: var NettyStream) =
       reactor.send(conn, d)
     message.clear()
 
-proc rpc*(conn: Connection, procName: string, vargs: tuple) =
+proc writeHashedProcName(procName: Strings) =
+  ## Write the hashed procedure name to the send buffer.
+  when procName.type is static string:
+    const hashedName = hash(procName)
+    sendBuffer.write(hashedName)
+  else:
+    sendBuffer.write(hash(procName))
+
+proc rpc*(conn: Connection, procName: Strings, vargs: tuple) =
   ## Send a rpc to a specific connection.
-  sendBuffer.write(hash(procName))
+  writeHashedProcName(procName)
   for k, v in vargs.fieldPairs:
     sendBuffer.write(v)
   send(conn, sendBuffer)
 
-proc rpc*(procName: string, vargs: tuple) =
+proc rpc*(procName: Strings, vargs: tuple) =
   ## Send a rpc to all connected clients.
-  sendBuffer.write(hash(procName))
+  writeHashedProcName(procName)
   for k, v in vargs.fieldPairs:
     sendBuffer.write(v)
   sendall(sendBuffer)
 
-proc rpc*(conn: Connection, procName: string) =
+proc rpc*(conn: Connection, procName: Strings) =
   ## Send a rpc to a specific connection.
-  sendBuffer.write(hash(procName))
+  writeHashedProcName(procName)
   send(conn, sendBuffer)
 
-proc rpc*(procName: string) =
+proc rpc*(procName: Strings) =
   ## Send a rpc to all connected clients.
-  sendBuffer.write(hash(procName))
+  writeHashedProcName(procName)
   sendall(sendBuffer)
 
 proc relay(ns: string, conn: Connection) =
@@ -179,7 +189,6 @@ proc compileFinalStmts(toNetwork: NimNode, data: NimNode, conn: NimNode, recBody
   ## Create the final statement list with the finalized procedure and the proc
   ## registry.
   let procName = hash($name(toNetwork))
-    
   let finalStmts = block:
     if isRelayed:
       let stm = quote do:
