@@ -42,7 +42,7 @@ proc sendall*(message: var NettyStream) =
       reactor.send(conn, d)
     message.clear()
 
-proc writeHashedProcName(procName: Strings) =
+proc writeHashedProcName(procName: Strings) {.inline.} =
   ## Write the hashed procedure name to the send buffer.
   when procName.type is static string:
     const hashedName = hash(procName)
