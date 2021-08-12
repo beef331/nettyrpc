@@ -62,3 +62,20 @@ suite "nettystream":
     assert t == -13333333
     ns.read t
     assert t == 32132132132
+  
+  test "tuple":
+    let a = (a: 1, b: 1.0, c: -1)
+    var ns = NettyStream()
+    ns.write(a)
+    ns.pos = 0
+    var b: a.type  # Type mismatch error
+    ns.read(b)
+    assert a == b
+
+    let c = (1, 1.0, -1)
+    ns = NettyStream()
+    ns.write(a)
+    ns.pos = 0
+    var d: a.type  # Type mismatch error
+    ns.read(d)
+    assert c == d

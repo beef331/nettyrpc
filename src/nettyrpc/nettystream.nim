@@ -81,7 +81,7 @@ proc read*[T: seq or string](ns: var NettyStream, s: var T) =
   for x in 0..s.high:
     ns.read(s[x])
 
-proc read*[T: object](ns: var NettyStream, o: var T) =
+proc read*[T: object or tuple](ns: var NettyStream, o: var T) =
   for field in o.fields:
     ns.read(field)
 
