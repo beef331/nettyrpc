@@ -93,7 +93,7 @@ proc read*[T: ref object](ns: var NettyStream, o: var T) =
     for x in o[].fields:
       ns.read(x)
 
-proc getBuffer*(ns: NettyStream): string = ns.buffer
+proc getBuffer*(ns: NettyStream): lent string = ns.buffer
 proc addToBuffer*(ns: var NettyStream, str: string) = ns.buffer.add str
 proc atEnd*(ns: NettyStream): bool = ns.pos >= ns.buffer.len
 proc size*(ns: NettyStream): int = ns.buffer.len

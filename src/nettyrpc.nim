@@ -7,16 +7,18 @@ export nettystream
 type 
   NettyRpcException = object of CatchableError
   Strings* = string or static string
-
+  MessageType = enum
+    Networked, Relayed
 var
   compEventCount{.compileTime.} = 0u16
-  relayedEvents*: array[uint16, proc(data: var NettyStream)] ## Ugly method of holding procedures
-  managedEvents*: Table[Hash, proc(data: var NettyStream, conn: Connection)] ## Uglier method of holding procedures
+  relayedEvents: array[uint16, proc(data: var NettyStream)] ## Ugly method of holding procedures
+  managedEvents: Table[Hash, proc(data: var NettyStream, conn: Connection)] ## Uglier method of holding procedures
   reactor*: Reactor
   client*: Connection
-  sendBuffer* = NettyStream()
-  sendAllBuffer* = NettyStream()
-  directSends*: Table[Connection, seq[NettyStream]]
+  sendBuffer = NettyStream()
+  relayBuffer = NettyStream()
+  sendAllBuffer = NettyStream()
+  directSends: Table[Connection, seq[NettyStream]]
 
 proc hash(conn: Connection): Hash =
   var h: Hash = 0
@@ -29,23 +31,33 @@ proc basicSend(conn: Connection, message: string) =
   ## Does not use netty stream.
   if reactor.isNil:
     raise newException(NettyRpcException, "Reactor is not set")
-  if(not reactor.isNil):
-    reactor.send(conn, message)
+  
+  reactor.send(conn, message)
 
 proc send*(conn: Connection, message: var NettyStream) =
   ## Sends the RPC message to the server to process directly.
   if reactor.isNil:
     raise newException(NettyRpcException, "Reactor is not set")
-  if(not reactor.isNil and message.pos > 0):
+  if message.pos > 0 :
     reactor.send(conn, message.getBuffer[0..<message.pos])
     message.clear()
+
+proc sendall*(message: string, exclude: Connection = Connection()) =
+  ## Sends the RPC message to the server to process
+  if reactor.isNil:
+    raise newException(NettyRpcException, "Reactor is not set")
+
+  if message.len > 0:
+    for conn in reactor.connections:
+      if conn != exclude:
+        reactor.send(conn, message)
 
 proc sendall*(message: var NettyStream, exclude: Connection = Connection()) =
   ## Sends the RPC message to the server to process
   if reactor.isNil:
     echo "Reactor is nil"
     raise newException(NettyRpcException, "Reactor is not set")
-  if(not reactor.isNil and message.pos > 0):
+  if message.pos > 0:
     var d = message.getBuffer[0..<message.pos]
     for conn in reactor.connections:
       if conn != exclude:
@@ -107,6 +119,11 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
       reactor.send(k, directSendStream.getBuffer)
     directSends.clear()
   else:
+    if relayBuffer.pos > 0:
+      sendBuffer.write(MessageType.Relayed)
+      sendBuffer.write(relayBuffer.pos - 1)
+      sendBuffer.write(relayBuffer.getBuffer)
+      relayBuffer.clear()
     client.send(sendBuffer) # Relayed client
   sendall(sendAllBuffer)  # Send to all connections
 
@@ -129,11 +146,11 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
         var res: MessageType
         theBuffer.read res
         res
-      case messageType:
 
+      case messageType:
       of MessageType.Networked:
         let managedId = block: # Read proc id
-          var res: int
+          var res: Hash
           theBuffer.read res
           res
         if managedEvents.hasKey(managedId):
@@ -141,29 +158,28 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
 
       of MessageType.Relayed:
         let messageLength = block:
-          var res: int
+          var res: int64
           theBuffer.read res
           res
         
-        var theEnd = theBuffer.pos + messageLength
-        while theBuffer.pos < theEnd:
-          var relayBuffer = NettyStream()
-          relayBuffer.addToBuffer(theBuffer.getBuffer[theBuffer.pos..<theEnd])
+        let theEnd = theBuffer.pos + messageLength
+        if server:
+          let
+            offset = sizeOf(MessageType) + sizeOf(int64)
+            start = theBuffer.pos - offset
+            str = theBuffer.getBuffer[start..theEnd]
+          sendAll(str, conn)
+          theBuffer.pos = theEnd.int
+          break
 
-          if server:
-            sendall(relayBuffer, conn)
-            theBuffer.pos = theEnd-1
-            continue
-
+        while theBuffer.pos <= theEnd:
           let relayedId = block: # Read proc id
             var res: uint16
             theBuffer.read res
-            relayBuffer.read res
             res
           
           if(relayedEvents[relayedId] != nil):
             relayedEvents[relayedId](relayBuffer)
-          theBuffer.pos = theEnd-1
 
 proc mapProcParams(toNetwork: NimNode, isRelayed: bool = false): tuple[n: seq[NimNode], t: seq[(NimNode, NimNode)]] =
   ## Create a tuple containing nim node names and types that we need to 
@@ -190,89 +206,66 @@ proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType:
   ## it will add the isLocal bool.
   var 
     recBody = newStmtList()
-    tempBufferBody = newStmtList()
     sendBody = newStmtList()
+  let 
+    sendBuffer = 
+      if isRelayed:
+        bindSym"relayBuffer"
+      else:
+        bindSym"sendBuffer"
 
-  var tempStream = ident("tempStream")
-  tempBufferBody.add quote do:  
-    var `tempStream` = NettyStream()
-  let data = ident("data")
-  let conn = ident("conn")
-  let msgLen = ident("msgLen")
+  let
+    data = ident("data")
+    conn = ident("conn")
 
   # For each variable read data
   for (name, pType) in paramNameType:
     # Logic for recieving
-    let sendBuffer = ident("sendBuffer")
     recBody.add quote do:
       let `name` = block:
         var temp: `pType`
         `data`.read(temp)
         temp
     if isRelayed:
-      tempBufferBody.add quote do:
-        write(`tempStream`, `name`)
       sendBody.add quote do:
         write(`sendBuffer`, `name`)
 
-  if isRelayed:
-    tempBufferBody.insert(
-      1,
-      newStmtList(
-        newCall(
-          ident("write"),
-          ident("tempStream"),
-          newDotExpr(ident("MessageType"), ident("Relayed"))
-        ),
-        newCall(
-          ident("write"),
-          ident("tempStream"),
-          newLit(compEventCount)
-        )      
-      )
-    )
-    tempBufferBody.add quote do:
-      var `msgLen` = sizeof `tempStream`.getBuffer
-      `msgLen` += sizeof msgLen
-    sendBody.insert(
-      0,
-      newStmtList(
-        newCall(
-          ident("write"),
-          ident("sendBuffer"),
-          newDotExpr(ident("MessageType"), ident("Relayed"))
-        ),
-        newCall(
-          ident("write"),
-          ident("sendBuffer"),
-          ident("msgLen")
-        ),
-        newCall(
-          ident("write"),
-          ident("sendBuffer"),
-          newLit(compEventCount)
-        )      
-      )
-    )
-
+  let
+    messageKind =
+      if isRelayed:
+        Relayed
+      else:
+        Networked
+    eventId = 
+      if isRelayed:
+        newLit(compEventCount)
+      else:
+        newLit(hash($toNetwork[0].baseName))
   if not isRelayed:
-    paramNames.add ident("conn") # param for conn: Conection = Connection ()
+    sendBody.insert 0, quote do:
+      write(`sendBuffer`, `messageKind`)
+      write(`sendBuffer`, `eventId`)
+  else:
+    sendBody.insert 0, quote do:
+      write(`sendBuffer`, `eventId`)
+
   if isRelayed:
     paramNames.add nnkExprEqExpr.newTree(ident"isLocal", ident"false") # Adding `isLocal = false` for the call
+  else:
+    paramNames.add ident("conn") # param for conn: Conection = Connection ()
+
   recBody.add(newCall($toNetwork[0], paramNames))
   
   var identDef = newIdentDefs(
       ident("conn"), ident("Connection"), newCall(ident("Connection"))
     )
-  if not isRelayed:
-    toNetwork[3].add(identDef)
+
   if isRelayed:
     toNetwork[3].add newIdentDefs(ident"isLocal", ident"bool", ident"true")
-    toNetwork[^1].add newIfStmt((ident("isLocal"), newStmtList(
-      # tempBufferBody,
-      sendBody
-    )))
-  
+    toNetwork[^1].add newIfStmt((ident("isLocal"), newStmtList(sendBody)))
+  else:
+    toNetwork[3].add(identDef)
+
   (recBody, sendBody, data, conn)
 
 proc compileFinalStmts(toNetwork: NimNode, data: NimNode, conn: NimNode, recBody: NimNode, isRelayed: bool = false): NimNode =
@@ -281,13 +274,16 @@ proc compileFinalStmts(toNetwork: NimNode, data: NimNode, conn: NimNode, recBody
   let procName = hash($name(toNetwork))
   let finalStmts = block:
     if isRelayed:
-      let stm = quote do:
-        relayedEvents[`compEventCount`] = proc(`data`: var NettyStream) = `recBody`
+      let
+        relayEvents = bindSym"relayedEvents"
+        stm = quote do:
+          `relayEvents`[`compEventCount`] = proc(`data`: var NettyStream) = `recBody`
       inc compEventCount
       stm
     else:
+      let manageEvents = bindsym"managedEvents"
       quote do:
-        managedEvents[`procName`] = proc(`data`: var NettyStream, `conn`: Connection) = `recBody`
+        `manageEvents`[`procName`] = proc(`data`: var NettyStream, `conn`: Connection) = `recBody`
 
   #Generated AST for entire proc
   result = newStmtList().add(
@@ -323,7 +319,3 @@ macro relayed*(toNetwork: untyped): untyped =
   var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType, true)
   result = compileFinalStmts(toNetwork, data, conn, recBody, true)
   echo result.repr
-
-proc relay(procName: string, theArgs: tuple) {.networked.} =
-  var theArgsType = type(theArgs)
-  rpc(procName, theArgs)
