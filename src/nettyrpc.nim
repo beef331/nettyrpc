@@ -1,4 +1,4 @@
-import std/[macros, macrocache, tables, hashes]
+import std/[macros, macrocache, tables, hashes, strutils]
 import netty
 import nettyrpc/nettystream
 
@@ -38,7 +38,8 @@ proc send*(conn: Connection, message: var NettyStream) =
   ## Sends the RPC message to the server to process directly.
   if reactor.isNil:
     raise newException(NettyRpcException, "Reactor is not set")
-  if message.pos > 0 :
+  if message.pos > 0:
+    echo message.getBuffer.toHex
     reactor.send(conn, message.getBuffer[0..<message.pos])
     message.clear()
 
@@ -120,11 +121,12 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
     directSends.clear()
   else:
     if relayBuffer.pos > 0:
-      sendBuffer.write(MessageType.Relayed)
-      sendBuffer.write(relayBuffer.pos - 1)
-      sendBuffer.write(relayBuffer.getBuffer)
+      sendBuffer.write(MessageType.Relayed) # Id
+      sendBuffer.write(relayBuffer.getBuffer) # Writes len, message
       relayBuffer.clear()
+
     client.send(sendBuffer) # Relayed client
+
   sendall(sendAllBuffer)  # Send to all connections
 
   # Map msg data to the correct connection
@@ -137,49 +139,37 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
       connMaps[msg.conn].add(msg.data)
 
   # process each connection's buffer separately
+  var theBuffer = NettyStream()
   for conn, tb in connMaps.pairs:
-    var theBuffer = NettyStream()
+    theBuffer.clear()
     theBuffer.addToBuffer(tb)
-
+    echo tb.toHex
     while(not theBuffer.atEnd):
-      let messageType = block:  # Read the message type
-        var res: MessageType
-        theBuffer.read res
-        res
+      let
+        start = theBuffer.pos # Store start of this message incase relay
+        messageType = theBuffer.read(MessageType)
 
       case messageType:
       of MessageType.Networked:
-        let managedId = block: # Read proc id
-          var res: Hash
-          theBuffer.read res
-          res
+        let managedId = theBuffer.read(Hash)
         if managedEvents.hasKey(managedId):
           managedEvents[managedId](theBuffer, conn)
 
       of MessageType.Relayed:
-        let messageLength = block:
-          var res: int64
-          theBuffer.read res
-          res
-        
-        let theEnd = theBuffer.pos + messageLength
+        let messageLength = theBuffer.read(int64)
+
         if server:
           let
-            offset = sizeOf(MessageType) + sizeOf(int64)
-            start = theBuffer.pos - offset
-            str = theBuffer.getBuffer[start..theEnd]
+            theEnd = start + messageLength + sizeOf(int64) + sizeof(MessageType) # len doesnt count header info so offset it
+            str = theBuffer.getBuffer[start..<theEnd]
           sendAll(str, conn)
           theBuffer.pos = theEnd.int
-          break
-
-        while theBuffer.pos <= theEnd:
-          let relayedId = block: # Read proc id
-            var res: uint16
-            theBuffer.read res
-            res
-          
-          if(relayedEvents[relayedId] != nil):
-            relayedEvents[relayedId](relayBuffer)
+          continue
+        let theEnd = theBuffer.pos + messageLength
+        while theBuffer.pos < theEnd:
+          let relayedId = theBuffer.read(uint16)
+          if relayedEvents[relayedId] != nil and relayedId in 0u16..compEventCount:
+            relayedEvents[relayedId](theBuffer)
 
 proc mapProcParams(toNetwork: NimNode, isRelayed: bool = false): tuple[n: seq[NimNode], t: seq[(NimNode, NimNode)]] =
   ## Create a tuple containing nim node names and types that we need to 

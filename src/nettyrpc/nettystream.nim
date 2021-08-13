@@ -2,18 +2,10 @@ type NettyStream* = object
   buffer: string
   pos*: int
 
-proc write*[T: enum or bool](ns: var NettyStream, i: T)
-
-proc read*[T: enum or bool](ns: var NettyStream, e: var T)
-proc read*[T: SomeInteger](ns: var NettyStream, v: var T)
-
-proc write*[T: enum or bool](ns: var NettyStream, i: T) =
-  ns.write i.ord
-
-proc write*[T: SomeInteger](ns: var NettyStream, i: T) =
-  for `byte` in 0..<T.sizeof:
-    ns.buffer.add ((i shr (byte * 8)) and 0xff).char
-    inc ns.pos
+proc write*[T: SomeOrdinal](ns: var NettyStream, i: T) =
+  ns.buffer.setLen(max(ns.pos + sizeof(T), ns.buffer.len + sizeof(T)))
+  copyMem(ns.buffer[ns.pos].addr, i.unsafeAddr, sizeof(T))
+  inc ns.pos, sizeof(T)
 
 proc write*[T: float32](ns: var NettyStream, f: T) =
   let i = cast[int32](f)
@@ -32,7 +24,7 @@ proc write*[T: array](ns: var NettyStream, a: T) =
     ns.write ele
 
 proc write*[T: seq or string](ns: var NettyStream, s: T) =
-  ns.write(s.len)
+  ns.write(s.len.int64)
   for x in s:
     ns.write(x)
 
@@ -45,20 +37,9 @@ proc write*[T: ref object](ns: var NettyStream, obj: T) =
   if obj != nil:
     ns.write(obj[])
 
-proc read*[T: enum or bool](ns: var NettyStream, e: var T) =
-  var val = 0
-  ns.read(val)
-  e = val.T
-
-proc read*[T: char](ns: var NettyStream, c: var T) =
-  c = ns.buffer[ns.pos]
-  inc ns.pos
-
-proc read*[T: SomeInteger](ns: var NettyStream, v: var T) =
-  v = default(T)
-  for `byte` in 0..<T.sizeof:
-    v = v or (ns.buffer[ns.pos].ord shl (byte * 8)).T
-    inc ns.pos
+proc read*[T: SomeOrdinal or char](ns: var NettyStream, v: var T) =
+  v = cast[ptr T](ns.buffer[ns.pos].unsafeAddr)[]
+  inc ns.pos, sizeof(T)
 
 proc read*[T: float32](ns: var NettyStream, v: var T) =
   var i32: uint32
@@ -92,6 +73,8 @@ proc read*[T: ref object](ns: var NettyStream, o: var T) =
     o = T()
     for x in o[].fields:
       ns.read(x)
+
+proc read*(ns: var NettyStream, T: typedesc): T {.inline.} = ns.read(result)
 
 proc getBuffer*(ns: NettyStream): lent string = ns.buffer
 proc addToBuffer*(ns: var NettyStream, str: string) = ns.buffer.add str
