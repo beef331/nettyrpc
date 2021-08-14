@@ -121,7 +121,6 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
     if relayBuffer.pos > 0:
       sendBuffer.write(MessageType.Relayed) # Id
       sendBuffer.write(relayBuffer.getBuffer) # Writes len, message
-      echo relayBuffer.getBuffer
       relayBuffer.clear()
     client.send(sendBuffer) # Relayed client
 
@@ -146,17 +145,15 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
         let messageLength = theBuffer.read(int64)
         if server:
           let
-            theEnd = theBuffer.pos + messageLength # len doesnt count header info so offset it
+            theEnd = theBuffer.pos + messageLength
             str = theBuffer.getBuffer[start..<theEnd]
-          echo str
           sendAll(str, msg.conn)
           theBuffer.pos = theEnd.int
-          continue
         else:
           let theEnd = theBuffer.pos + messageLength - 1
           while theBuffer.pos < theEnd:
             let relayedId = theBuffer.read(uint16)
-            if relayedEvents[relayedId] != nil and relayedId in 0u16..compEventCount:
+            if relayedEvents[relayedId] != nil:
               relayedEvents[relayedId](theBuffer)
 
 proc mapProcParams(toNetwork: NimNode, isRelayed: bool = false): tuple[n: seq[NimNode], t: seq[(NimNode, NimNode)]] =
@@ -278,7 +275,6 @@ macro networked*(toNetwork: untyped): untyped =
   var (paramNames, paramNameType) = mapProcParams(toNetwork)
   var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType)
   result = compileFinalStmts(toNetwork, data, conn, recBody)
-  echo result.repr
 
 macro relayed*(toNetwork: untyped): untyped =
   ## Adds the RPC-relay like behaviour,
@@ -291,4 +287,3 @@ macro relayed*(toNetwork: untyped): untyped =
   var (paramNames, paramNameType) = mapProcParams(toNetwork, true)
   var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType, true)
   result = compileFinalStmts(toNetwork, data, conn, recBody, true)
-  echo result.repr
