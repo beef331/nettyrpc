@@ -78,7 +78,7 @@ proc read*(ns: var NettyStream, T: typedesc): T {.inline.} = ns.read(result)
 
 proc getBuffer*(ns: NettyStream): lent string = ns.buffer
 proc addToBuffer*(ns: var NettyStream, str: string) = ns.buffer.add str
-proc atEnd*(ns: NettyStream): bool = ns.pos >= ns.buffer.len
+proc atEnd*(ns: NettyStream): bool = ns.pos >= ns.buffer.high
 proc size*(ns: NettyStream): int = ns.buffer.len
 proc clear*(ns: var NettyStream) =
   ns.pos = 0

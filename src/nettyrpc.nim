@@ -39,11 +39,10 @@ proc send*(conn: Connection, message: var NettyStream) =
   if reactor.isNil:
     raise newException(NettyRpcException, "Reactor is not set")
   if message.pos > 0:
-    echo message.getBuffer.toHex
-    reactor.send(conn, message.getBuffer[0..<message.pos])
+    reactor.send(conn, message.getBuffer)
     message.clear()
 
-proc sendall*(message: string, exclude: Connection = Connection()) =
+proc sendall*(message: string, exclude: Connection = nil) =
   ## Sends the RPC message to the server to process
   if reactor.isNil:
     raise newException(NettyRpcException, "Reactor is not set")
@@ -53,13 +52,12 @@ proc sendall*(message: string, exclude: Connection = Connection()) =
       if conn != exclude:
         reactor.send(conn, message)
 
-proc sendall*(message: var NettyStream, exclude: Connection = Connection()) =
+proc sendall*(message: var NettyStream, exclude: Connection = nil) =
   ## Sends the RPC message to the server to process
   if reactor.isNil:
-    echo "Reactor is nil"
     raise newException(NettyRpcException, "Reactor is not set")
   if message.pos > 0:
-    var d = message.getBuffer[0..<message.pos]
+    var d = message.getBuffer
     for conn in reactor.connections:
       if conn != exclude:
         reactor.send(conn, d)
@@ -123,53 +121,43 @@ proc rpcTick*(sock: Reactor, server: bool = false) =
     if relayBuffer.pos > 0:
       sendBuffer.write(MessageType.Relayed) # Id
       sendBuffer.write(relayBuffer.getBuffer) # Writes len, message
+      echo relayBuffer.getBuffer
       relayBuffer.clear()
-
     client.send(sendBuffer) # Relayed client
 
   sendall(sendAllBuffer)  # Send to all connections
 
-  # Map msg data to the correct connection
-  var connMaps = initTable[Connection, string]()
-  for msg in reactor.messages:
-    if connMaps.hasKey(msg.conn):
-      connMaps[msg.conn].add(msg.data)
-    else:
-      connMaps[msg.conn] = ""
-      connMaps[msg.conn].add(msg.data)
-
-  # process each connection's buffer separately
   var theBuffer = NettyStream()
-  for conn, tb in connMaps.pairs:
+  for msg in reactor.messages:
     theBuffer.clear()
-    theBuffer.addToBuffer(tb)
-    echo tb.toHex
+    theBuffer.addToBuffer(msg.data)
+
     while(not theBuffer.atEnd):
       let
-        start = theBuffer.pos # Store start of this message incase relay
+        start = theBuffer.pos
         messageType = theBuffer.read(MessageType)
-
       case messageType:
       of MessageType.Networked:
         let managedId = theBuffer.read(Hash)
         if managedEvents.hasKey(managedId):
-          managedEvents[managedId](theBuffer, conn)
+          managedEvents[managedId](theBuffer, msg.conn)
 
       of MessageType.Relayed:
         let messageLength = theBuffer.read(int64)
-
         if server:
           let
-            theEnd = start + messageLength + sizeOf(int64) + sizeof(MessageType) # len doesnt count header info so offset it
+            theEnd = theBuffer.pos + messageLength # len doesnt count header info so offset it
             str = theBuffer.getBuffer[start..<theEnd]
-          sendAll(str, conn)
+          echo str
+          sendAll(str, msg.conn)
           theBuffer.pos = theEnd.int
           continue
-        let theEnd = theBuffer.pos + messageLength
-        while theBuffer.pos < theEnd:
-          let relayedId = theBuffer.read(uint16)
-          if relayedEvents[relayedId] != nil and relayedId in 0u16..compEventCount:
-            relayedEvents[relayedId](theBuffer)
+        else:
+          let theEnd = theBuffer.pos + messageLength - 1
+          while theBuffer.pos < theEnd:
+            let relayedId = theBuffer.read(uint16)
+            if relayedEvents[relayedId] != nil and relayedId in 0u16..compEventCount:
+              relayedEvents[relayedId](theBuffer)
 
 proc mapProcParams(toNetwork: NimNode, isRelayed: bool = false): tuple[n: seq[NimNode], t: seq[(NimNode, NimNode)]] =
   ## Create a tuple containing nim node names and types that we need to 
@@ -231,30 +219,26 @@ proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType:
         newLit(compEventCount)
       else:
         newLit(hash($toNetwork[0].baseName))
-  if not isRelayed:
-    sendBody.insert 0, quote do:
-      write(`sendBuffer`, `messageKind`)
-      write(`sendBuffer`, `eventId`)
-  else:
-    sendBody.insert 0, quote do:
-      write(`sendBuffer`, `eventId`)
 
   if isRelayed:
+    sendBody.insert 0, quote do:
+      write(`sendBuffer`, `eventId`)
     paramNames.add nnkExprEqExpr.newTree(ident"isLocal", ident"false") # Adding `isLocal = false` for the call
-  else:
-    paramNames.add ident("conn") # param for conn: Conection = Connection ()
-
-  recBody.add(newCall($toNetwork[0], paramNames))
-  
-  var identDef = newIdentDefs(
-      ident("conn"), ident("Connection"), newCall(ident("Connection"))
-    )
-
-  if isRelayed:
     toNetwork[3].add newIdentDefs(ident"isLocal", ident"bool", ident"true")
     toNetwork[^1].add newIfStmt((ident("isLocal"), newStmtList(sendBody)))
   else:
+    sendBody.insert 0, quote do:
+      write(`sendBuffer`, `messageKind`)
+      write(`sendBuffer`, `eventId`)
+    paramNames.add ident("conn") # param for conn: Conection = Connection ()
+
+    let identDef = newIdentDefs(
+      ident("conn"), ident("Connection"), newCall(ident("Connection"))
+    )
+
     toNetwork[3].add(identDef)
+
+  recBody.add(newCall($toNetwork[0], paramNames))
 
   (recBody, sendBody, data, conn)
 
@@ -278,8 +262,7 @@ proc compileFinalStmts(toNetwork: NimNode, data: NimNode, conn: NimNode, recBody
   #Generated AST for entire proc
   result = newStmtList().add(
     toNetwork,
-    quote do:
-      `finalStmts`
+    finalStmts
   )
 
 macro networked*(toNetwork: untyped): untyped =
