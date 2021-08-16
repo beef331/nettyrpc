@@ -28,17 +28,21 @@ proc set_client_id(theClientId: uint32) {.networked.} =
   echo "setting client id: " & $theClientId
   clientId = theClientId
 
-proc display_chat(name, message: string) {.networked.} =
-  ## Display chat message from the server.
-  eraseLine()
-  echo fmt"{getClockStr()} {name} says: {message}"
+proc display_chat(name, message: string, originId: uint32) {.networked.} =
+  ## Display chat message from the server.  Checks local clientId against originId
+  ## and displays appropriate message depending on where the RPC originated.
 
+  if originId != clientId:
+    eraseLine()
+    echo fmt"{getClockStr()} {name} says: {message}"
+  else:
+    eraseLine()
+    echo fmt"{getClockStr()} You said: {message}"
 
 proc send_chat(name, msg: string) =
   # If you want client actions to take place instantly, create a procedure 
   # to handle client-side logic and then dispatch the RPC.
-  eraseLine()
-  echo fmt"{getClockStr()} You said: {msg}"
+  # echo fmt"{getClockStr()} You said: {msg}"
   rpc("send_chat", (name: name, msg: msg))
 
 proc inputLoop(input: ptr Channel[string]) {.thread.} =
@@ -49,13 +53,19 @@ proc inputLoop(input: ptr Channel[string]) {.thread.} =
     input[].send(msg)
     msg.setLen(0)
 
+
 let 
   (name, ip, port) = getParams()
   client = newReactor()
+
 nettyrpc.client = client.connect(ip, port)
 nettyrpc.reactor = client
 
-rpc("join")  # Join the server.
+doAssert(ip != "", "You must set an ip via -i=127.0.0.1")
+doAssert(port != 0, "You must set a port via -p=1999")
+doAssert(name != "", "You must use a nickname via -n=someNickname")
+
+rpc("join")  # Join the server and set clientId.
 
 var 
   worker: Thread[ptr Channel[string]]
@@ -63,6 +73,7 @@ var
 input.open
 worker.createThread(inputLoop, input.addr)
 echo fmt"Hello {name}"
+
 
 echo "starting tick"
 while true:
