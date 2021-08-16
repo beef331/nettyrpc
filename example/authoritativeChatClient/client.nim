@@ -28,21 +28,17 @@ proc set_client_id(theClientId: uint32) {.networked.} =
   echo "setting client id: " & $theClientId
   clientId = theClientId
 
-proc display_chat(name, message: string, originId: uint32) {.networked.} =
-  ## Display chat message from the server.  Checks local clientId against originId
-  ## and displays appropriate message depending on where the RPC originated.
+proc display_chat(name, message: string) {.networked.} =
+  ## Display chat message from the server.
+  eraseLine()
+  echo fmt"{getClockStr()} {name} says: {message}"
 
-  if originId != clientId:
-    eraseLine()
-    echo fmt"{getClockStr()} {name} says: {message}"
-  else:
-    eraseLine()
-    echo fmt"{getClockStr()} You said: {message}"
 
 proc send_chat(name, msg: string) =
   # If you want client actions to take place instantly, create a procedure 
   # to handle client-side logic and then dispatch the RPC.
-  # echo fmt"{getClockStr()} You said: {message}"
+  eraseLine()
+  echo fmt"{getClockStr()} You said: {msg}"
   rpc("send_chat", (name: name, msg: msg))
 
 proc inputLoop(input: ptr Channel[string]) {.thread.} =
@@ -61,11 +57,6 @@ nettyrpc.reactor = client
 
 rpc("join")  # Join the server.
 
-for k in nettyrpc.directSends.keys:
-  echo k
-for v in nettyrpc.directSends.values:
-  echo v
-
 var 
   worker: Thread[ptr Channel[string]]
   input: Channel[string]
@@ -75,7 +66,7 @@ echo fmt"Hello {name}"
 
 echo "starting tick"
 while true:
-  client.networkTick()
+  client.rpcTick()
   let (gotInput, msg) = input.tryRecv
   if gotInput:
     send_chat(name, msg)

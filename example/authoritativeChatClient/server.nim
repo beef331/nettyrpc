@@ -21,7 +21,7 @@ proc send_chat(name: string, msg: string) {.networked.} =
 
 # main loop
 while true:
-  server.networkTick(server=true)  
+  server.rpcTick(server=true)  
   for msg in server.messages:  # Display messages since last tick.
     echo msg
   sleep(30)
