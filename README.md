@@ -11,7 +11,7 @@ A `{.relayed.}` RPC is sent directly to the server, no server-side processing is
 
 `{.networked.}` RPCs are sent to the server where the server processes the data, and depending on how you write your server code, the server can forward the data to an individual client, all clients, or process the data server-side without any forwarding.  Networked RPCs must be called through the `rpc` procedures provided by nettyrpc, ie. `rpc("someRemoteProc", (arg1, arg2, arg3))` or `rpc(conn, "someRemoteProc", (arg1, arg2, arg3))`.  It's important that your args are wrapped in a `tuple` when using the `rpc` procedures.  If your `networked` procedure only has 1 argument, you must use a named tuple.
 
-`{.networked.}` RPCs contain [a netty `Connection` object](https://github.com/treeform/netty/blob/master/src/netty.nim#L52) that represents the RPC caller's connection.  This is accessed through the `conn` variable that is automatically added to any `{.networked.}` procedures.
+`{.networked.}` RPCs contain [a netty `Connection` object](https://github.com/treeform/netty/blob/master/src/netty.nim#L52) that represents the RPC caller's connection.  This is accessed through the `conn` variable that is automatically added to any `{.networked.}` procedures.  It is important to note that the `Connection` object that is provided to the client-side script will always point back to the server.  The server's `{.networked.}` procedures must pass this information on to clients if the clients need to know which client is responsible for the original remote procedure call.
 
 ## Uses
 
