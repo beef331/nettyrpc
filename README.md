@@ -1,7 +1,7 @@
 # nettyrpc
  Implements an RPC-like system for Nim
 
-nettyrpc is a RPC module for game development.  nettyrpc is built on top of the netty library, and sends data over a modified UDP connection that's capped at 250k of in-flight data.  Netty performs packet ordering and packet resending like a TCP connection, but it's all done over UDP.  Check the netty library for more information about how netty utilizes UDP, and it's limitations.
+nettyrpc is a RPC module for game development.  nettyrpc is built on top of the netty library, and sends serialized data over a modified UDP connection that's capped at 250k of in-flight data.  Netty performs packet ordering and packet resending like a TCP connection, but it's all done over UDP.  Check the netty library for more information about how netty utilizes UDP, and it's limitations.
 
 https://github.com/treeform/netty
 
