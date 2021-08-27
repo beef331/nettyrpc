@@ -11,7 +11,6 @@ var
 ### -p is Port
 ### -n is Name
 ### -i is Ip
-
 proc getParams: (string, string, int) =
   for kind, key, val in getOpt():
     case key:
@@ -22,7 +21,6 @@ proc getParams: (string, string, int) =
     of "name", "n":
       result[0] = val
 
-
 proc set_client_id(theClientId: uint32) {.networked.} =
   ## Set the client's internal clientId to the server-side connection id.
   echo "setting client id: " & $theClientId
@@ -32,17 +30,24 @@ proc display_chat(name, message: string, originId: uint32) {.networked.} =
   ## Display chat message from the server.  Checks local clientId against originId
   ## and displays appropriate message depending on where the RPC originated.
 
+  eraseLine()
   if originId != clientId:
-    eraseLine()
     echo fmt"{getClockStr()} {name} says: {message}"
   else:
-    eraseLine()
+    # eraseLine()
     echo fmt"{getClockStr()} You said: {message}"
+
+proc ping() {.relayed.} =
+  ## Inclusion of relayed procedure to demonstrate that they can be used together.
+  if isLocal:
+    echo "local pong"
+  else:
+    echo "remote pong"
 
 proc send_chat(name, msg: string) =
   # If you want client actions to take place instantly, create a procedure 
   # to handle client-side logic and then dispatch the RPC.
-  # echo fmt"{getClockStr()} You said: {message}"
+  # echo fmt"{getClockStr()} You said: {msg}"
   rpc("send_chat", (name: name, msg: msg))
 
 proc inputLoop(input: ptr Channel[string]) {.thread.} =
@@ -53,18 +58,20 @@ proc inputLoop(input: ptr Channel[string]) {.thread.} =
     input[].send(msg)
     msg.setLen(0)
 
+
 let 
   (name, ip, port) = getParams()
   client = newReactor()
+
 nettyrpc.client = client.connect(ip, port)
 nettyrpc.reactor = client
 
-rpc("join")  # Join the server.
+doAssert(ip != "", "You must set an ip via -i=127.0.0.1")
+doAssert(port != 0, "You must set a port via -p=1999")
+doAssert(name != "", "You must use a nickname via -n=someNickname")
 
-for k in nettyrpc.directSends.keys:
-  echo k
-for v in nettyrpc.directSends.values:
-  echo v
+rpc("join")  # Join the server and set clientId.
+ping()
 
 var 
   worker: Thread[ptr Channel[string]]
@@ -75,7 +82,7 @@ echo fmt"Hello {name}"
 
 echo "starting tick"
 while true:
-  client.networkTick()
+  client.rpcTick()
   let (gotInput, msg) = input.tryRecv
   if gotInput:
     send_chat(name, msg)
