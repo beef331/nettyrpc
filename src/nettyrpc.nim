@@ -1,4 +1,4 @@
-import std/[macros, macrocache, tables, hashes, strutils]
+import std/[macros, macrocache, tables, hashes]
 import netty
 import nettyrpc/nettystream
 
@@ -25,14 +25,6 @@ proc hash(conn: Connection): Hash =
   h = h !& hash(conn.id)
   h = h !& hash(conn.address.host)
   result = !$h
-
-proc basicSend(conn: Connection, message: string) =
-  ## Sends the RPC message to the server to process directly.
-  ## Does not use netty stream.
-  if reactor.isNil:
-    raise newException(NettyRpcException, "Reactor is not set")
-  
-  reactor.send(conn, message)
 
 proc send*(conn: Connection, message: var NettyStream) =
   ## Sends the RPC message to the server to process directly.
@@ -103,11 +95,6 @@ proc rpc*(procName: Strings) =
   ## Send a rpc to all connected clients.
   writeRpcHeader(procName, sendAllBuffer)
 
-proc relayServerTick(conn: Connection, data: string) =
-  for connec in reactor.connections:
-    if connec != conn:
-      reactor.send(connec, data)
-
 proc rpcTick*(sock: Reactor, server: bool = false) =
   sock.tick()
   if server:
@@ -176,7 +163,7 @@ proc mapProcParams(toNetwork: NimNode, isRelayed: bool = false): tuple[n: seq[Ni
         paramNames.add idn
   (paramNames, paramNameType)
 
-proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType: var seq[(NimNode, NimNode)], isRelayed: bool = false): tuple[recBody: NimNode, sendBody: NimNode, data: NimNode, conn: NimNode] =
+proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType: var seq[(NimNode, NimNode)], isRelayed: bool = false): tuple[recBody: NimNode, data: NimNode, conn: NimNode] =
   ## Patches nim nodes and adds netty Connection object.  If the procedure is relayed
   ## it will add the isLocal bool.
   var 
@@ -237,7 +224,7 @@ proc patchNodes(toNetwork: NimNode, paramNames: var seq[NimNode], paramNameType:
 
   recBody.add(newCall($toNetwork[0], paramNames))
 
-  (recBody, sendBody, data, conn)
+  (recBody, data, conn)
 
 proc compileFinalStmts(toNetwork: NimNode, data: NimNode, conn: NimNode, recBody: NimNode, isRelayed: bool = false): NimNode =
   ## Create the final statement list with the finalized procedure and the proc
@@ -273,7 +260,7 @@ macro networked*(toNetwork: untyped): untyped =
   ## on the client-side will always represent the connection to the server.
   
   var (paramNames, paramNameType) = mapProcParams(toNetwork)
-  var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType)
+  var (recBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType)
   result = compileFinalStmts(toNetwork, data, conn, recBody)
 
 macro relayed*(toNetwork: untyped): untyped =
@@ -285,5 +272,5 @@ macro relayed*(toNetwork: untyped): untyped =
   ## Netty Connection object will always represent connection to server.
   
   var (paramNames, paramNameType) = mapProcParams(toNetwork, true)
-  var (recBody, sendBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType, true)
+  var (recBody, data, conn) = patchNodes(toNetwork, paramNames, paramNameType, true)
   result = compileFinalStmts(toNetwork, data, conn, recBody, true)
