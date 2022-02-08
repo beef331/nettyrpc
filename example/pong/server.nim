@@ -17,4 +17,4 @@ while true:
   #   for client in server.connections:
   #     if(msg.conn != client):
   #       server.send(client, msg.data)
-  sleep(30)
+  sleep(10)
